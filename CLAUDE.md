@@ -28,7 +28,19 @@ They are learning cloud and AI operations and do not want to write most of the c
 - Build image: `docker build -t docq:local .`
 - Run container: `docker run --rm -p 8080:8080 docq:local`, then open http://localhost:8080/health (custom port: `docker run --rm -e PORT=9000 -p 9000:9000 docq:local`)
   (on Windows, if `docker` is not found, add `C:\Program Files\Docker\Docker\resources\bin` to PATH)
-- Deploy: TBD
+- Deploy to Cloud Run (PowerShell; needs gcloud >= 500, older versions fail on Artifact Registry). Set variables first:
+  `$P='<project-id>'; $R='europe-west2'; $IMG="$R-docker.pkg.dev/$P/docq/docq"; $T='v1'`
+  - Enable APIs (once): `gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com --project $P`
+  - Artifact Registry repo (once): `gcloud artifacts repositories create docq --repository-format=docker --location=$R --project $P`
+  - Service accounts, no keys (once): `gcloud iam service-accounts create docq-run --project $P` (runtime, NO roles) and `gcloud iam service-accounts create docq-build --project $P` (build)
+  - Build account roles (once): `roles/artifactregistry.writer` on the docq repo (`gcloud artifacts repositories add-iam-policy-binding docq --location=$R --project $P --member="serviceAccount:docq-build@$P.iam.gserviceaccount.com" --role=roles/artifactregistry.writer`), `roles/logging.logWriter` on the project (`gcloud projects add-iam-policy-binding $P ...`), `roles/storage.objectViewer` on `gs://${P}_cloudbuild` (`gcloud storage buckets add-iam-policy-binding ...`; the bucket exists after the first build attempt)
+  - Build: `gcloud builds submit . --project $P --region $R --config cloudbuild.yaml --substitutions="_IMAGE=${IMG}:$T" --service-account="projects/$P/serviceAccounts/docq-build@$P.iam.gserviceaccount.com"`
+  - Deploy (private): `gcloud run deploy docq --image="${IMG}:$T" --region=$R --project=$P --service-account="docq-run@$P.iam.gserviceaccount.com" --no-allow-unauthenticated --min-instances=0 --max-instances=2 --cpu=1 --memory=256Mi --port=8080`
+  - Call while private: `curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" <service-url>/health` (no token gives 403)
+  - Make public (deliberate, IAM change; undo with `remove-iam-policy-binding`): `gcloud run services add-iam-policy-binding docq --region=$R --project=$P --member=allUsers --role=roles/run.invoker`
+  - Logs: `gcloud run services logs read docq --region=$R --project=$P --limit=20`
+  - Revisions: `gcloud run revisions list --service=docq --region=$R --project=$P`
+  - Roll back traffic: `gcloud run services update-traffic docq --region=$R --project=$P --to-revisions=<revision-name>=100` (forward again: `--to-latest`)
 
 ## Rules (never break these)
 1. **No secrets in the repo, logs, or chat.** Use Secret Manager or environment variables loaded at runtime. Never commit `.env` files.
@@ -49,4 +61,6 @@ They are learning cloud and AI operations and do not want to write most of the c
 - Any new risk or assumption is written down
 
 ## Lessons learned (add a line whenever the agent gets something wrong)
-- (empty for now)
+- gcloud 363 (2021) fails on `artifacts repositories create` ("Maven config is not supported"); check `gcloud --version` and update before GCP work.
+- A Cloud Build run with a custom service account needs `options.logging: CLOUD_LOGGING_ONLY` (see cloudbuild.yaml); `--tag` alone is rejected.
+- Do not run `gcloud beta` commands in non-interactive mode; it tries to install components in a new window.
