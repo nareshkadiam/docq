@@ -37,13 +37,14 @@ GCP, Artifact Registry, Cloud Run, any LLM calls, docker-compose, authentication
 
 ## Things to try by hand (to build understanding)
 - Build the image, then run `docker images` and note its size
+- run docker conatiner image `docker run --rm -p 8080:8080 docq:local`, then in another window  `docker ps`
 - Run the container, call `/health`, then run `docker ps` to see it
 - Stop it with `docker stop <container-id>`, and see that the app is gone
 - Run it with a different port: `-e PORT=9000` and map the port accordingly
 - Inside the running container, run `whoami` (via `docker exec`) and confirm it is not root
 
 ## Learning-log note (write after, in my own words)
-- What is the difference between an image and a container?
-- Why does the app need to listen on 0.0.0.0 and on $PORT?
-- What does .dockerignore protect me from?
-- Why is running as non-root better?
+- What is the difference between an image and a container? -- An image is the packaged, read-only software with all its dependencies (a template). A container is a running instance of that image. Nothing gets installed when it starts; it just runs what is already in the image. I can start many containers from one image.
+- Why does the app need to listen on 0.0.0.0 and on $PORT? -- Inside a container, "localhost" (127.0.0.1) means only the container itself, so my browser's request, which arrives through the `-p` port mapping, would never reach the app. 0.0.0.0 means "listen on all network interfaces", which lets the mapped traffic in. $PORT is because Cloud Run decides which port the app must use and passes it in as an environment variable. The app reads PORT and falls back to 8080 when it is not set.
+- What does .dockerignore protect me from? -- It is a list of files and folders that are NOT copied into the image: .git, .venv, .env files, caches. It keeps secrets out of the image (anyone with the image could read them), and keeps the image small and builds fast. It is not about dependencies; those are installed from requirements.txt.
+- Why is running as non-root better? -- If someone exploits a bug in the app, they only get the limited permissions of that user. They cannot change system files, install tools or do much damage inside the container, and it is harder to escape to the host. It limits the blast radius.
