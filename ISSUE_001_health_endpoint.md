@@ -26,6 +26,6 @@ None expected. No secrets involved. Confirm no `.env` file is committed.
 > Review the diff on this branch critically as a skeptical senior engineer. Look for bugs, missing tests, security problems, and anything unclear. Do not make changes, just report.
 
 ## Learning-log note (write after, in my own words)
-- What does the app do when I call /health?
-- What is FastAPI doing for me?
-- Why is there a test for something this small?
+- What does the app do when I call /health? -- It returns HTTP 200 with the JSON body {"status": "ok"}. It only shows the app is running; it checks nothing else.
+- What is FastAPI doing for me? -- It matches the request (GET /health) to my Python function, turns the returned dict into a JSON response with status 200, and gives me docs at /docs for free. The server that listens for requests is uvicorn, not FastAPI.
+- Why is there a test for something this small? -- It proves the test setup works, catches breakage if someone changes the endpoint later, and CI can run it automatically on every change. Cloud Run will also rely on a health check like this.
