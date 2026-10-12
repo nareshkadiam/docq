@@ -14,6 +14,7 @@ venv/
 *.key
 service-account*.json
 credentials*.json
+application_default_credentials*.json
 
 # Terraform (for later phases)
 .terraform/
