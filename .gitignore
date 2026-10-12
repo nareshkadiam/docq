@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Secrets and local config (never commit these)
+.env
+.env.*
+*.pem
+*.key
+service-account*.json
+credentials*.json
+
+# Terraform (for later phases)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
