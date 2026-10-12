@@ -51,6 +51,11 @@ The app is a vehicle. The real subject is everything around it.
 - [ ] Golden question set, automated evals as a CI gate
 - [ ] Prompt injection tests, rate limiting, hardening
 
+## Security notes
+- `POST /ask` sends the user's text straight into the model prompt. That is acceptable for now because the prompt is a plain question. Once documents are added to the prompt (Phase 5), **prompt injection** becomes a real concern: text inside a document can try to give the model new instructions. Treat document content as untrusted input.
+- The service is private (Cloud Run IAM). Callers need an identity token. Model name, region and limits are environment variables; there is no API key and no key file.
+- Request logs hold metadata only (status, latency, question length). Questions and answers are never logged.
+
 ## How I work (the manual loop)
 1. Write the issue (what, why, done-when)
 2. Ask Claude Code for a plan. Read it. No code yet.

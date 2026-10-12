@@ -14,6 +14,7 @@ __pycache__
 *.key
 service-account*.json
 credentials*.json
+application_default_credentials*.json
 
 # Not needed at runtime
 tests

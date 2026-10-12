@@ -38,6 +38,13 @@ They are learning cloud and AI operations and do not want to write most of the c
   - Deploy (private): `gcloud run deploy docq --image="${IMG}:$T" --region=$R --project=$P --service-account="docq-run@$P.iam.gserviceaccount.com" --no-allow-unauthenticated --min-instances=0 --max-instances=2 --cpu=1 --memory=256Mi --port=8080`
   - Call while private: `curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" <service-url>/health` (no token gives 403)
   - Make public (deliberate, IAM change; undo with `remove-iam-policy-binding`): `gcloud run services add-iam-policy-binding docq --region=$R --project=$P --member=allUsers --role=roles/run.invoker`
+  - Remove public access (the service must stay private once `/ask` exists; IAM change, can take ~100 s to take effect, check both service URLs): `gcloud run services remove-iam-policy-binding docq --region=$R --project=$P --member=allUsers --role=roles/run.invoker`
+  - Deploy with `/ask` settings (adds env vars to the private deploy above): `--set-env-vars="GOOGLE_CLOUD_PROJECT=$P,GEMINI_MODEL=gemini-3.5-flash-lite,GEMINI_LOCATION=eu,MAX_QUESTION_CHARS=1000,MAX_OUTPUT_TOKENS=256,MODEL_TIMEOUT_SECONDS=20"`. After a manual traffic pin, send traffic to the new revision with `gcloud run services update-traffic docq --region=$R --project=$P --to-latest`
+  - Vertex AI (Issue 4), once: `gcloud services enable aiplatform.googleapis.com --project $P`; grant the runtime account ONLY `roles/aiplatform.user`: `gcloud projects add-iam-policy-binding $P --member="serviceAccount:docq-run@$P.iam.gserviceaccount.com" --role=roles/aiplatform.user` (undo: `remove-iam-policy-binding`)
+  - Local ADC (your own login, stored outside the repo in `%APPDATA%\gcloud`): `gcloud auth application-default login`, then `gcloud auth application-default set-quota-project $P`. Revoke with `gcloud auth application-default revoke`. Never copy the ADC file into the repo
+  - Run `/ask` locally with real Gemini (costs a fraction of a cent): `$env:GOOGLE_CLOUD_PROJECT=$P` then `.venv\Scripts\python.exe -m uvicorn app.main:app --reload`. Tests never call the real model
+  - Call a private service with a token: `$t = gcloud auth print-identity-token; curl.exe -X POST <service-url>/ask -H "Authorization: Bearer $t" -H "Content-Type: application/json" -d '{\"question\":\"What is Cloud Run?\"}'` (without the token: 403). Do not paste the token into chat or files
+  - Before any `gcloud builds submit .`, list what will be uploaded: `gcloud meta list-files-for-upload .` (no credential, `.env` or key files)
   - Logs: `gcloud run services logs read docq --region=$R --project=$P --limit=20`
   - Revisions: `gcloud run revisions list --service=docq --region=$R --project=$P`
   - Roll back traffic: `gcloud run services update-traffic docq --region=$R --project=$P --to-revisions=<revision-name>=100` (forward again: `--to-latest`)
@@ -64,3 +71,6 @@ They are learning cloud and AI operations and do not want to write most of the c
 - gcloud 363 (2021) fails on `artifacts repositories create` ("Maven config is not supported"); check `gcloud --version` and update before GCP work.
 - A Cloud Build run with a custom service account needs `options.logging: CLOUD_LOGGING_ONLY` (see cloudbuild.yaml); `--tag` alone is rejected.
 - Do not run `gcloud beta` commands in non-interactive mode; it tries to install components in a new window.
+- Gemini region: Google's locations page listed `europe-west2` for `gemini-3.5-flash-lite`, but the real call returned 404 there; the model card (global, `us`, `eu`) was right. Use `GEMINI_LOCATION=eu`. Always do one real test call before trusting a docs page on model availability.
+- An `application_default_credentials.json` copy (refresh token) appeared in the repo root during Issue 4 and was deleted by the user; `.gitignore` and `.dockerignore` now exclude it. `gcloud builds submit .` uploads the whole folder, so check `gcloud meta list-files-for-upload .` first.
+- After a manual `update-traffic --to-revisions=...` pin, new deploys get 0% traffic until `--to-latest` is run.
