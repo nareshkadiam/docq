@@ -25,7 +25,9 @@ They are learning cloud and AI operations and do not want to write most of the c
 - Run locally: `.venv\Scripts\python.exe -m uvicorn app.main:app --reload`, then open http://127.0.0.1:8000/health
 - Run tests: `.venv\Scripts\python.exe -m pytest`
 - Lint: TBD
-- Build image: TBD
+- Build image: `docker build -t docq:local .`
+- Run container: `docker run --rm -p 8080:8080 docq:local`, then open http://localhost:8080/health (custom port: `docker run --rm -e PORT=9000 -p 9000:9000 docq:local`)
+  (on Windows, if `docker` is not found, add `C:\Program Files\Docker\Docker\resources\bin` to PATH)
 - Deploy: TBD
 
 ## Rules (never break these)

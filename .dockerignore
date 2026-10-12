@@ -1,0 +1,22 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# Secrets and local config
+.env
+.env.*
+*.pem
+*.key
+service-account*.json
+credentials*.json
+
+# Not needed at runtime
+tests
+Dockerfile
+.dockerignore
+*.md
