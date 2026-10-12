@@ -20,8 +20,10 @@ They are learning cloud and AI operations and do not want to write most of the c
 
 ## Commands
 (Fill these in as they are created, and keep them accurate.)
-- Run locally: TBD
-- Run tests: TBD
+- One-time setup (PowerShell, from repo root): `uv venv --python 3.12 .venv` then `uv pip install --python .venv\Scripts\python.exe -r requirements-dev.txt`
+  (without uv: `python -m venv .venv`, `.venv\Scripts\Activate.ps1`, `pip install -r requirements-dev.txt`)
+- Run locally: `.venv\Scripts\python.exe -m uvicorn app.main:app --reload`, then open http://127.0.0.1:8000/health
+- Run tests: `.venv\Scripts\python.exe -m pytest`
 - Lint: TBD
 - Build image: TBD
 - Deploy: TBD
