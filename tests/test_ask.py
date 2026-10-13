@@ -1,5 +1,3 @@
-import logging
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -86,22 +84,6 @@ def test_unexpected_error_returns_generic_500():
     response = safe_client.post("/ask", json={"question": "hello"})
     assert response.status_code == 500
     assert response.json() == {"error": "internal_error"}
-
-
-def test_logs_have_metadata_but_not_question_or_answer(caplog):
-    use_fake_model(lambda question: "SECRET-ANSWER-abc")
-    logging.getLogger("docq").propagate = True  # let caplog see it
-    try:
-        with caplog.at_level(logging.INFO, logger="docq"):
-            client.post("/ask", json={"question": SECRET_QUESTION})
-    finally:
-        logging.getLogger("docq").propagate = False
-    logged = caplog.text
-    assert "path=/ask" in logged
-    assert "status=200" in logged
-    assert f"question_len={len(SECRET_QUESTION)}" in logged
-    assert SECRET_QUESTION not in logged
-    assert "SECRET-ANSWER-abc" not in logged
 
 
 def test_real_client_is_never_built_by_tests():

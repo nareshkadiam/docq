@@ -1,4 +1,4 @@
-import logging
+import os
 import time
 from collections.abc import Callable
 
@@ -7,18 +7,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app import llm
+from app import llm, logs
 from app.config import get_settings
 
-# Request logs carry metadata only (status, latency, question length).
-# Never log the question or the answer (CLAUDE.md rule 8).
-logger = logging.getLogger("docq")
-if not logger.handlers:
-    _handler = logging.StreamHandler()
-    _handler.setFormatter(logging.Formatter("%(message)s"))
-    logger.addHandler(_handler)
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
+# Request logs carry metadata only (status, latency, question length, error code).
+# Never log the question, the answer or an exception message (CLAUDE.md rule 8).
+logger = logs.get_logger()
 
 app = FastAPI(title="DocQ")
 
@@ -40,6 +34,12 @@ def get_model_caller() -> Callable[[str], str]:
     return lambda question: llm.ask_model(question, settings)
 
 
+def error_response(request: Request, status_code: int, code: str) -> JSONResponse:
+    """Fixed-message error body; the code is also recorded for the request log."""
+    request.state.error = code
+    return JSONResponse(status_code=status_code, content={"error": code})
+
+
 @app.middleware("http")
 async def log_request(request: Request, call_next):
     start = time.perf_counter()
@@ -48,28 +48,43 @@ async def log_request(request: Request, call_next):
         response = await call_next(request)
         status = response.status_code
         return response
+    except Exception as exc:
+        # The handler that builds the 500 runs after this middleware, so record it here.
+        # Class name only: the message can repeat the user's input.
+        request.state.error = "internal_error"
+        request.state.exception_type = type(exc).__name__
+        raise
     finally:
-        latency_ms = round((time.perf_counter() - start) * 1000)
-        question_len = getattr(request.state, "question_len", None)
-        logger.info(
-            "request method=%s path=%s status=%s latency_ms=%s question_len=%s",
-            request.method,
-            request.url.path,
-            status,
-            latency_ms,
-            question_len,
+        fields = {
+            "method": request.method,
+            "path": request.url.path,
+            "status": status,
+            "latency_ms": round((time.perf_counter() - start) * 1000),
+        }
+        # Read the project straight from the environment: logging must never fail
+        # because of an unrelated (bad) setting.
+        trace = logs.trace_from_header(
+            request.headers.get("x-cloud-trace-context"), os.getenv("GOOGLE_CLOUD_PROJECT")
         )
+        optional = {
+            "question_len": getattr(request.state, "question_len", None),
+            "error": getattr(request.state, "error", None),
+            "exception_type": getattr(request.state, "exception_type", None),
+            logs.TRACE_KEY: trace,
+        }
+        fields.update({key: value for key, value in optional.items() if value is not None})
+        logger.log(logs.level_for(status), "request", extra={"fields": fields})
 
 
 @app.exception_handler(RequestValidationError)
 async def invalid_request(request: Request, exc: RequestValidationError):
     # The default body repeats the user's input back; return a fixed message instead.
-    return JSONResponse(status_code=422, content={"error": "invalid_request"})
+    return error_response(request, 422, "invalid_request")
 
 
 @app.exception_handler(Exception)
 async def unexpected_error(request: Request, exc: Exception):
-    return JSONResponse(status_code=500, content={"error": "internal_error"})
+    return error_response(request, 500, "internal_error")
 
 
 @app.get("/")
@@ -94,14 +109,14 @@ def ask(
     request.state.question_len = len(question)
 
     if not question:
-        return JSONResponse(status_code=422, content={"error": "question_empty"})
+        return error_response(request, 422, "question_empty")
     if len(question) > get_settings().max_question_chars:
-        return JSONResponse(status_code=422, content={"error": "question_too_long"})
+        return error_response(request, 422, "question_too_long")
 
     try:
         answer = call_model(question)
     except llm.ModelTimeout:
-        return JSONResponse(status_code=504, content={"error": "model_timeout"})
+        return error_response(request, 504, "model_timeout")
     except llm.ModelError:
-        return JSONResponse(status_code=502, content={"error": "model_unavailable"})
+        return error_response(request, 502, "model_unavailable")
     return AskResponse(answer=answer)
