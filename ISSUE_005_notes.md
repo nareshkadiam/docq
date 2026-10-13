@@ -72,8 +72,8 @@ Surprises:
 - `gcloud billing budgets list` needs the Cloud Billing Budget API enabled, so the budget alert has to be checked in the console.
 
 ## Timings
-- Teardown: about 1 minute of command time, plus approval pauses (stopwatch time: to fill)
-- Rebuild: (to fill)
+- Teardown: 10 minutes by stopwatch (about 1 minute of that was command time; the rest was explaining and approving each delete)
+- Rebuild: 25 minutes by stopwatch (about 3 minutes of command time: builds 4 s + 38 s, deploy 15 s; the rest was approvals, the deliberate 60 s waits after IAM grants, and checks)
 - Slower or more confusing than expected: (to fill)
 
 ## Billing
