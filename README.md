@@ -32,7 +32,7 @@ The app is a vehicle. The real subject is everything around it.
 - [ ] 5. Tear down everything, redeploy from scratch
 
 ### Phase 2: Observability and tracing
-- [ ] Structured logs
+- [x] Structured logs
 - [ ] OpenTelemetry traces for each request
 - [ ] Metrics: latency, errors, token usage, cost
 - [ ] LLM tracing (prompt, response, latency per call)
