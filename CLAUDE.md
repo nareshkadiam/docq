@@ -29,25 +29,51 @@ They are learning cloud and AI operations and do not want to write most of the c
 - Run container: `docker run --rm -p 8080:8080 docq:local`, then open http://localhost:8080/health (custom port: `docker run --rm -e PORT=9000 -p 9000:9000 docq:local`)
   (on Windows, if `docker` is not found, add `C:\Program Files\Docker\Docker\resources\bin` to PATH)
 - Deploy to Cloud Run (PowerShell; needs gcloud >= 500, older versions fail on Artifact Registry). Set variables first:
-  `$P='<project-id>'; $R='europe-west2'; $IMG="$R-docker.pkg.dev/$P/docq/docq"; $T='v1'`
+  `$P='docq-learning'; $R='europe-west2'; $IMG="$R-docker.pkg.dev/$P/docq/docq"; $T='v4'` (use a new version tag per build; never deploy only `latest`)
+  - Prerequisites: `gcloud --version` (>= 500), `gcloud auth list` (your account is active), `gcloud config get-value project` (equals `$P`). Your user needs Owner (or `iam.serviceAccountUser` on `docq-run` and `docq-build`) to deploy and build as those accounts. After every IAM grant wait 1-2 minutes before retesting
   - Enable APIs (once): `gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com --project $P`
   - Artifact Registry repo (once): `gcloud artifacts repositories create docq --repository-format=docker --location=$R --project $P`
   - Service accounts, no keys (once): `gcloud iam service-accounts create docq-run --project $P` (runtime, NO roles) and `gcloud iam service-accounts create docq-build --project $P` (build)
-  - Build account roles (once): `roles/artifactregistry.writer` on the docq repo (`gcloud artifacts repositories add-iam-policy-binding docq --location=$R --project $P --member="serviceAccount:docq-build@$P.iam.gserviceaccount.com" --role=roles/artifactregistry.writer`), `roles/logging.logWriter` on the project (`gcloud projects add-iam-policy-binding $P ...`), `roles/storage.objectViewer` on `gs://${P}_cloudbuild` (`gcloud storage buckets add-iam-policy-binding ...`; the bucket exists after the first build attempt)
+  - Build account roles (once): `roles/artifactregistry.writer` on the docq repo (`gcloud artifacts repositories add-iam-policy-binding docq --location=$R --project $P --member="serviceAccount:docq-build@$P.iam.gserviceaccount.com" --role=roles/artifactregistry.writer`), `roles/logging.logWriter` on the project (`gcloud projects add-iam-policy-binding $P ...`), `roles/storage.objectViewer` on `gs://${P}_cloudbuild` (`gcloud storage buckets add-iam-policy-binding gs://${P}_cloudbuild --member="serviceAccount:docq-build@$P.iam.gserviceaccount.com" --role=roles/storage.objectViewer`). Order trap: the bucket is created by the first `builds submit` upload, so on a fresh project the first build fails at the source step; then grant this role, wait, and run the build again. (Verify during the Issue 5 rebuild that `--region` does not change the bucket name)
   - Build: `gcloud builds submit . --project $P --region $R --config cloudbuild.yaml --substitutions="_IMAGE=${IMG}:$T" --service-account="projects/$P/serviceAccounts/docq-build@$P.iam.gserviceaccount.com"`
-  - Deploy (private): `gcloud run deploy docq --image="${IMG}:$T" --region=$R --project=$P --service-account="docq-run@$P.iam.gserviceaccount.com" --no-allow-unauthenticated --min-instances=0 --max-instances=2 --cpu=1 --memory=256Mi --port=8080`
+  - Deploy (private, complete, includes the `/ask` settings; do the Vertex AI step below first): `gcloud run deploy docq --image="${IMG}:$T" --region=$R --project=$P --service-account="docq-run@$P.iam.gserviceaccount.com" --no-allow-unauthenticated --min-instances=0 --max-instances=2 --cpu=1 --memory=256Mi --port=8080 --set-env-vars="GOOGLE_CLOUD_PROJECT=$P,GEMINI_MODEL=gemini-3.5-flash-lite,GEMINI_LOCATION=eu,MAX_QUESTION_CHARS=1000,MAX_OUTPUT_TOKENS=256,MODEL_TIMEOUT_SECONDS=20"`
   - Call while private: `curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" <service-url>/health` (no token gives 403)
-  - Make public (deliberate, IAM change; undo with `remove-iam-policy-binding`): `gcloud run services add-iam-policy-binding docq --region=$R --project=$P --member=allUsers --role=roles/run.invoker`
+  - Make public (DO NOT USE since Issue 4: `/ask` calls a paid model; only for the Issue 3 demo; undo with `remove-iam-policy-binding`): `gcloud run services add-iam-policy-binding docq --region=$R --project=$P --member=allUsers --role=roles/run.invoker`
   - Remove public access (the service must stay private once `/ask` exists; IAM change, can take ~100 s to take effect, check both service URLs): `gcloud run services remove-iam-policy-binding docq --region=$R --project=$P --member=allUsers --role=roles/run.invoker`
-  - Deploy with `/ask` settings (adds env vars to the private deploy above): `--set-env-vars="GOOGLE_CLOUD_PROJECT=$P,GEMINI_MODEL=gemini-3.5-flash-lite,GEMINI_LOCATION=eu,MAX_QUESTION_CHARS=1000,MAX_OUTPUT_TOKENS=256,MODEL_TIMEOUT_SECONDS=20"`. After a manual traffic pin, send traffic to the new revision with `gcloud run services update-traffic docq --region=$R --project=$P --to-latest`
+  - After a manual traffic pin, send traffic to the new revision with `gcloud run services update-traffic docq --region=$R --project=$P --to-latest`
   - Vertex AI (Issue 4), once: `gcloud services enable aiplatform.googleapis.com --project $P`; grant the runtime account ONLY `roles/aiplatform.user`: `gcloud projects add-iam-policy-binding $P --member="serviceAccount:docq-run@$P.iam.gserviceaccount.com" --role=roles/aiplatform.user` (undo: `remove-iam-policy-binding`)
   - Local ADC (your own login, stored outside the repo in `%APPDATA%\gcloud`): `gcloud auth application-default login`, then `gcloud auth application-default set-quota-project $P`. Revoke with `gcloud auth application-default revoke`. Never copy the ADC file into the repo
   - Run `/ask` locally with real Gemini (costs a fraction of a cent): `$env:GOOGLE_CLOUD_PROJECT=$P` then `.venv\Scripts\python.exe -m uvicorn app.main:app --reload`. Tests never call the real model
-  - Call a private service with a token: `$t = gcloud auth print-identity-token; curl.exe -X POST <service-url>/ask -H "Authorization: Bearer $t" -H "Content-Type: application/json" -d '{\"question\":\"What is Cloud Run?\"}'` (without the token: 403). Do not paste the token into chat or files
+  - Call a private service with a token: `$t = gcloud auth print-identity-token; curl.exe -X POST <service-url>/ask -H "Authorization: Bearer $t" -H "Content-Type: application/json" -d '{\"question\":\"What is Cloud Run?\"}'` (without the token: 403). Do not paste the token into chat or files. Inline `-d '{\"question\":...}'` quoting gave a 422 in Windows PowerShell 5.1; the reliable form writes the body to a file first: `[IO.File]::WriteAllText("$env:TEMP\q.json", '{"question":"What is Cloud Run?"}')` and then `--data-binary "@$env:TEMP\q.json"`
   - Before any `gcloud builds submit .`, list what will be uploaded: `gcloud meta list-files-for-upload .` (no credential, `.env` or key files)
   - Logs: `gcloud run services logs read docq --region=$R --project=$P --limit=20`
   - Revisions: `gcloud run revisions list --service=docq --region=$R --project=$P`
   - Roll back traffic: `gcloud run services update-traffic docq --region=$R --project=$P --to-revisions=<revision-name>=100` (forward again: `--to-latest`)
+
+## Rebuild checklist (verified by the Issue 5 rebuild on 2026-10-13: first build fails with a 403 on the source tarball, `objectViewer` plus ~1 min fixes it; bucket stays `gs://${P}_cloudbuild` in the US even with `--region`; URL and `00001` revision numbering as expected)
+Order matters. Variables and prerequisites first (see Deploy above). Never use `--allow-unauthenticated` or the public IAM binding.
+1. Enable APIs: run, artifactregistry, cloudbuild, aiplatform (`gcloud services enable ... --project $P`)
+2. Create the Artifact Registry repo `docq`
+3. Create service accounts `docq-run` and `docq-build` (no keys)
+4. Grant `docq-run` ONLY `roles/aiplatform.user` (project); grant `docq-build` `roles/logging.logWriter` (project) and `roles/artifactregistry.writer` (repo). Add `--condition=None` to the two project-level `add-iam-policy-binding` commands to avoid a prompt
+5. `gcloud meta list-files-for-upload .` and confirm no credential, `.env` or key file
+6. Build with tag `$T`. On a fresh project this first build fails at the source upload (bucket `gs://${P}_cloudbuild` is created but `docq-build` cannot read it)
+7. Grant `docq-build` `roles/storage.objectViewer` on that bucket, wait 1-2 minutes, run the build again
+8. Deploy (private, complete command above)
+9. Check: no token on `/health` and `/ask` gives 403; with an identity token `/health` and `/ask` answer; the service URL is `https://docq-<project-number>.europe-west2.run.app` as before
+10. Check: `docq-run` has exactly one project role; max 2 instances, min 0; logs show request metadata only (no question or answer)
+
+## Teardown (commands verified in the Issue 5 run on 2026-10-13; whole teardown took about a minute of command time)
+Dangerous and mostly irreversible. Describe or list each resource first, delete one named resource at a time, pause after each. Never delete the project, billing link, budget alert or the default compute account.
+Order: service, then images and repo, then bucket, then role bindings, then service accounts (so no `deleted:serviceAccount:` entries are left in the project policy).
+0. Read-only first: `gcloud run services list`, `gcloud artifacts repositories list`, `gcloud storage buckets list`, `gcloud iam service-accounts list`, `gcloud projects get-iam-policy $P` (save the result in the issue notes)
+1. `gcloud run services delete docq --region=$R --project=$P --quiet` (~6 s)
+2. `gcloud artifacts repositories delete docq --location=$R --project=$P --quiet` (removes all images and the repo-level writer binding; ~14 s)
+3. `gcloud storage rm -r gs://${P}_cloudbuild --project $P` (removes the bucket, its objects and its objectViewer binding; ~16 s)
+4. `gcloud projects remove-iam-policy-binding $P --member="serviceAccount:docq-run@$P.iam.gserviceaccount.com" --role=roles/aiplatform.user --condition=None`; same with `docq-build@...` and `roles/logging.logWriter` (`--condition=None` avoids an interactive prompt)
+5. `gcloud iam service-accounts delete docq-run@$P.iam.gserviceaccount.com --project $P --quiet`; same for `docq-build@...`. The account list can show a deleted account for a few seconds; wait and list again (`describe` then says PERMISSION_DENIED / not found)
+6. Verify empty: `gcloud run services list`, `gcloud artifacts repositories list`, `gcloud storage buckets list`, `gcloud iam service-accounts list` (only the compute account remains), and the project policy has no `docq` or `deleted:` entries
+Left on purpose: enabled APIs (free), project, billing link, budget alert, default compute account, Cloud Logging default storage, local ADC login.
 
 ## Rules (never break these)
 1. **No secrets in the repo, logs, or chat.** Use Secret Manager or environment variables loaded at runtime. Never commit `.env` files.
